@@ -166,27 +166,22 @@ class ROILogic(QtCore.QObject):
 class ImageLogic(QtCore.QObject):
     """Controls the Images."""
 
-    _filepath = ''
+    _filepath = None
     _image = None
     _image_array = None
     _image_min = 0
     _image_max = 0
 
-    def __init__(self, filepath):
+    def __init__(self, filepath=None):
         super(ImageLogic, self).__init__()
         self._filepath = filepath
-        self._load_image()
+        if filepath:
+            self._load_image()
 
     def _load_image(self):
         filepath = self.filepath
         print('Loading ' + filepath + '...')
-        self._image = sitk.ReadImage(filepath)
-        image_array = sitk.GetArrayFromImage(self._image)
-        image_array = image_array.squeeze()
-        image_array = image_array.transpose()
-        self._image_array = image_array
-        self._image_min = image_array.min()
-        self._image_max = image_array.max()
+        self.image = sitk.ReadImage(filepath)
         print('Done')
 
     def get_filepath(self):
@@ -198,7 +193,17 @@ class ImageLogic(QtCore.QObject):
     def get_image(self):
         return self._image
 
+    def set_image(self, image):
+        self._image = image
+        image_array = sitk.GetArrayFromImage(self._image)
+        image_array = image_array.squeeze()
+        image_array = image_array.transpose()
+        self._image_array = image_array
+        self._image_min = image_array.min()
+        self._image_max = image_array.max()
+
     image = property(get_image,
+                     set_image,
                      doc='SimpleITK Image')
 
     def get_image_array(self):
@@ -247,9 +252,12 @@ class RFViewerWindow(QtGui.QMainWindow):
         rf_image_dock = ImageDock(rf_image_logic, roi_logic,
                                   'RF Image', size=(660, 750))
         self.dock_area.addDock(rf_image_dock)
+
         plots_dock = PlotsDock('Image ROI Content Plots',
                                size=(100, 200))
         self.dock_area.addDock(plots_dock, 'bottom', rf_image_dock)
+
+        b_mode_image_logic = ImageLogic(self.filepath)
 
         rf_plot_roi = rf_image_dock.add_plot_roi()
         plots_dock.add_image_to_plot(rf_plot_roi,
