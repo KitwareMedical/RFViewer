@@ -16,10 +16,8 @@ class PlotsDock(Dock):
 
     _images_to_plot = []
 
-    def __init__(self, logic, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         super(PlotsDock, self).__init__(*args, **kwargs)
-        self.logic = logic
-
         self.initializeUI()
 
     def initializeUI(self):
@@ -54,14 +52,17 @@ class PlotsDock(Dock):
 class ImageDock(Dock):
     """Display the image.  The full image and a zoomed in ROI is displayed."""
 
-    def __init__(self, logic, description='Image', *args, **kwargs):
+    def __init__(self, image_logic, roi_logic,
+                 description='Image', *args, **kwargs):
         super(ImageDock, self).__init__(description, *args, **kwargs)
-        self.logic = logic
+        self.image_logic = image_logic
+        self.roi_logic = roi_logic
         self.description = description
         self.initializeUI()
 
     def initializeUI(self):
-        logic = self.logic
+        image_logic = self.image_logic
+        roi_logic = self.roi_logic
 
         widget = pg.GraphicsWindow(border=True)
         widget.setWindowTitle(self.description)
@@ -70,33 +71,31 @@ class ImageDock(Dock):
 
         view = layout.addViewBox(row=0, col=0, rowspan=2, lockAspect=True)
         self.view = view
-        full_image_item = pg.ImageItem(logic.rf_image_array)
+        full_image_item = pg.ImageItem(image_logic.image_array)
         self.full_image_item = full_image_item
-        spacing = logic.rf_image.GetSpacing()
-        size = logic.rf_image.GetSize()
+        spacing = image_logic.image.GetSpacing()
+        size = image_logic.image.GetSize()
         rect = QtCore.QRectF(0, 0,
                              640, 640*size[1]*spacing[1]/size[0]/spacing[0])
         full_image_item.setRect(rect)
         view.addItem(full_image_item)
 
         zoom_roi_view = layout.addViewBox(row=2, col=0)
-        self.zoom_roi = pg.EllipseROI([300, 200], logic.zoom_roi_pos,
+        self.zoom_roi = pg.EllipseROI([300, 200], roi_logic.zoom_roi_pos,
                                       pen=(3, 9))
         view.addItem(self.zoom_roi)
         self.roi_image_item = pg.ImageItem()
         zoom_roi_view.addItem(self.roi_image_item)
 
         self.zoom_roi.sigRegionChanged.connect(self.update_zoom_roi_content)
-        self.zoom_roi.sigRegionChangeFinished.connect(logic.set_zoom_roi_pos)
-        logic.zoom_roi_pos_changed.connect(self.update_zoom_roi_content)
         self.update_zoom_roi_content(self.zoom_roi)
 
         full_image_item.setRect(rect)
 
     def add_plot_roi(self):
-        logic = self.logic
+        roi_logic = self.roi_logic
         size = (9, 150)
-        plot_roi = pg.RectROI(logic.plot_roi_pos, size,
+        plot_roi = pg.RectROI(roi_logic.plot_roi_pos, size,
                               centered=True, pen=(4, 9))
         self.view.addItem(plot_roi)
         return plot_roi
@@ -105,77 +104,27 @@ class ImageDock(Dock):
         return self.full_image_item
 
     def update_zoom_roi_content(self, roi_or_pos):
-        """When ROI, it is from self, other from the Logic"""
+        """When ROI, it is from self, other from the ImageLogic"""
         if isinstance(roi_or_pos, pg.ROI):
             pos = roi_or_pos.pos()
         else:
             pos = roi_or_pos
         self.zoom_roi.setPos(pos, update=False)
-        logic = self.logic
-        region = self.zoom_roi.getArrayRegion(logic.rf_image_array,
+        image_logic = self.image_logic
+        region = self.zoom_roi.getArrayRegion(image_logic.image_array,
                                               self.full_image_item)
         self.roi_image_item.setImage(region,
-                                     levels=(logic.rf_image_min,
-                                             logic.rf_image_max))
+                                     levels=(image_logic.image_min,
+                                             image_logic.image_max))
 
 
-class RFViewerLogic(QtCore.QObject):
-    """Controls the RFViewers."""
-
-    _filepath = ''
-    _rf_image = None
-    _rf_image_array = None
-    _rf_image_min = 0
-    _rf_image_max = 0
+class ROILogic(QtCore.QObject):
+    """Controls the ROIs"""
     _zoom_roi_pos = (80., 60.)
     _plot_roi_pos = (320., 300.)
 
-    def __init__(self, filepath):
-        super(RFViewerLogic, self).__init__()
-        self._filepath = filepath
-        self._load_rf_image()
-
-    def _load_rf_image(self):
-        filepath = self.filepath
-        print('Loading ' + filepath + '...')
-        self._rf_image = sitk.ReadImage(filepath)
-        rf_image_array = sitk.GetArrayFromImage(self._rf_image)
-        rf_image_array = rf_image_array.squeeze()
-        rf_image_array = rf_image_array.transpose()
-        self._rf_image_array = rf_image_array
-        self._rf_image_min = rf_image_array.min()
-        self._rf_image_max = rf_image_array.max()
-        print('Done')
-
-    def get_filepath(self):
-        return self._filepath
-
-    filepath = property(get_filepath,
-                        doc='RF data filepath')
-
-    def get_rf_image(self):
-        return self._rf_image
-
-    rf_image = property(get_rf_image,
-                        doc='RF SimpleITK Image')
-
-    def get_rf_image_array(self):
-        return self._rf_image_array
-
-    rf_image_array = property(get_rf_image_array,
-                              doc='RF image NumPy array')
-
-    def get_rf_image_min(self):
-        return self._rf_image_min
-
-    rf_image_min = property(get_rf_image_min,
-                            doc='RF image minimum value')
-
-    def get_rf_image_max(self):
-        return self._rf_image_max
-
-    rf_image_max = property(get_rf_image_max,
-                            doc='RF image maximum value')
+    def __init__(self):
+        super(ROILogic, self).__init__()
 
     def get_zoom_roi_pos(self):
         return self._zoom_roi_pos
@@ -214,17 +163,75 @@ class RFViewerLogic(QtCore.QObject):
     plot_roi_pos_changed = QtCore.pyqtSignal(object)
 
 
+class ImageLogic(QtCore.QObject):
+    """Controls the Images."""
+
+    _filepath = ''
+    _image = None
+    _image_array = None
+    _image_min = 0
+    _image_max = 0
+
+    def __init__(self, filepath):
+        super(ImageLogic, self).__init__()
+        self._filepath = filepath
+        self._load_image()
+
+    def _load_image(self):
+        filepath = self.filepath
+        print('Loading ' + filepath + '...')
+        self._image = sitk.ReadImage(filepath)
+        image_array = sitk.GetArrayFromImage(self._image)
+        image_array = image_array.squeeze()
+        image_array = image_array.transpose()
+        self._image_array = image_array
+        self._image_min = image_array.min()
+        self._image_max = image_array.max()
+        print('Done')
+
+    def get_filepath(self):
+        return self._filepath
+
+    filepath = property(get_filepath,
+                        doc='Input image filepath')
+
+    def get_image(self):
+        return self._image
+
+    image = property(get_image,
+                     doc='SimpleITK Image')
+
+    def get_image_array(self):
+        return self._image_array
+
+    image_array = property(get_image_array,
+                           doc='Image NumPy array')
+
+    def get_image_min(self):
+        return self._image_min
+
+    image_min = property(get_image_min,
+                         doc='Image minimum value')
+
+    def get_image_max(self):
+        return self._image_max
+
+    image_max = property(get_image_max,
+                         doc='Image maximum value')
+
+
 class RFViewerWindow(QtGui.QMainWindow):
     """View the RF data."""
 
-    def __init__(self, logic):
+    def __init__(self, filepath, roi_logic):
         super(RFViewerWindow, self).__init__()
-        self.logic = logic
+        self.filepath = filepath
+        self.roi_logic = roi_logic
         self.initializeUI()
 
     def initializeUI(self):
         self.resize(1024, 768)
-        self.setWindowTitle(self.logic.filepath + ' Viewer')
+        self.setWindowTitle(filepath + ' Viewer')
 
         exit_action = QtGui.QAction('&Exit', self)
         exit_action.setShortcut('Ctrl+Q')
@@ -234,18 +241,19 @@ class RFViewerWindow(QtGui.QMainWindow):
 
         self.dock_area = pg.dockarea.DockArea()
 
-        logic = self.logic
+        roi_logic = self.roi_logic
 
-        rf_image_dock = ImageDock(logic, 'RF Image', size=(660, 750))
+        rf_image_logic = ImageLogic(self.filepath)
+        rf_image_dock = ImageDock(rf_image_logic, roi_logic,
+                                  'RF Image', size=(660, 750))
         self.dock_area.addDock(rf_image_dock)
-        plots_dock = PlotsDock(logic,
-                               'Image ROI Content Plots',
+        plots_dock = PlotsDock('Image ROI Content Plots',
                                size=(100, 200))
         self.dock_area.addDock(plots_dock, 'bottom', rf_image_dock)
 
         rf_plot_roi = rf_image_dock.add_plot_roi()
         plots_dock.add_image_to_plot(rf_plot_roi,
-                                     logic.rf_image_array,
+                                     rf_image_logic.image_array,
                                      rf_image_dock.get_full_image_item())
 
         self.setCentralWidget(self.dock_area)
@@ -256,8 +264,8 @@ class RFViewer(object):
     """View RF data."""
 
     def __init__(self, filepath):
-        self.logic = RFViewerLogic(filepath)
-        self.window = RFViewerWindow(self.logic)
+        self.roi_logic = ROILogic()
+        self.window = RFViewerWindow(filepath, self.roi_logic)
 
 
 if __name__ == '__main__':
