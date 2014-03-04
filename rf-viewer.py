@@ -14,6 +14,8 @@ import SimpleITK as sitk
 class PlotsDock(Dock):
     """Display the RF, B-Mode, and spectrum in the ROI"""
 
+    _images_to_plot = []
+
     def __init__(self, logic, *args, **kwargs):
         super(PlotsDock, self).__init__(*args, **kwargs)
         self.logic = logic
@@ -21,26 +23,53 @@ class PlotsDock(Dock):
         self.initializeUI()
 
     def initializeUI(self):
-        logic = self.logic
+        widget = pg.GraphicsWindow()
+        widget.setWindowTitle('Plots')
+        self.addWidget(widget)
+        self.layout = widget.addLayout()
+
+    def add_image_to_plot(self, plot_roi, image_array, image_item):
+        plot = self.layout.addPlot()
+        plot_curve = plot.plot(pen=plot_roi.pen)
+        plot_roi.sigRegionChanged.connect(self.update_plot_content)
+        self._images_to_plot.append((plot_curve,
+                                     plot_roi,
+                                     image_array,
+                                     image_item))
+        self.update_plot_content(plot_roi)
+
+    def update_plot_content(self, roi_or_pos):
+        """When ROI, it is from self, other from the Logic"""
+        if isinstance(roi_or_pos, pg.ROI):
+            pos = roi_or_pos.pos()
+        else:
+            pos = roi_or_pos
+        for plot_curve, plot_roi, image_array, image_item in self._images_to_plot:
+            plot_roi.setPos(pos, update=False)
+            data = plot_roi.getArrayRegion(image_array,
+                                           image_item)
+            plot_curve.setData(data[data.shape[0]/2, :])
 
 
-class RFImageDock(Dock):
-    """Display the RF Image"""
+class ImageDock(Dock):
+    """Display the image.  The full image and a zoomed in ROI is displayed."""
 
-    def __init__(self, logic, *args, **kwargs):
-        super(RFImageDock, self).__init__(*args, **kwargs)
+    def __init__(self, logic, description='Image', *args, **kwargs):
+        super(ImageDock, self).__init__(description, *args, **kwargs)
         self.logic = logic
+        self.description = description
         self.initializeUI()
 
     def initializeUI(self):
         logic = self.logic
 
         widget = pg.GraphicsWindow(border=True)
-        widget.setWindowTitle('RF Image')
+        widget.setWindowTitle(self.description)
         self.addWidget(widget)
         layout = widget.addLayout(row=0, col=0)
 
-        full_view = layout.addViewBox(row=0, col=0, rowspan=2, lockAspect=True)
+        view = layout.addViewBox(row=0, col=0, rowspan=2, lockAspect=True)
+        self.view = view
         full_image_item = pg.ImageItem(logic.rf_image_array)
         self.full_image_item = full_image_item
         spacing = logic.rf_image.GetSpacing()
@@ -48,12 +77,12 @@ class RFImageDock(Dock):
         rect = QtCore.QRectF(0, 0,
                              640, 640*size[1]*spacing[1]/size[0]/spacing[0])
         full_image_item.setRect(rect)
-        full_view.addItem(full_image_item)
+        view.addItem(full_image_item)
 
         zoom_roi_view = layout.addViewBox(row=2, col=0)
         self.zoom_roi = pg.EllipseROI([300, 200], logic.zoom_roi_pos,
                                       pen=(3, 9))
-        full_view.addItem(self.zoom_roi)
+        view.addItem(self.zoom_roi)
         self.roi_image_item = pg.ImageItem()
         zoom_roi_view.addItem(self.roi_image_item)
 
@@ -62,19 +91,18 @@ class RFImageDock(Dock):
         logic.zoom_roi_pos_changed.connect(self.update_zoom_roi_content)
         self.update_zoom_roi_content(self.zoom_roi)
 
-        plot_roi = pg.LineROI((320, 300), (320, 450), 9, pen=(4, 9))
-        full_view.addItem(plot_roi)
-        rf_plot = layout.addPlot(row=3, col=0)
-        rf_plot_curve = rf_plot.plot(pen=plot_roi.pen)
-
-        def update_plot():
-            data = plot_roi.getArrayRegion(logic.rf_image_array,
-                                           full_image_item)
-            rf_plot_curve.setData(data[:, data.shape[1]/2])
-        plot_roi.sigRegionChanged.connect(update_plot)
-        update_plot()
-
         full_image_item.setRect(rect)
+
+    def add_plot_roi(self):
+        logic = self.logic
+        size = (9, 150)
+        plot_roi = pg.RectROI(logic.plot_roi_pos, size,
+                              centered=True, pen=(4, 9))
+        self.view.addItem(plot_roi)
+        return plot_roi
+
+    def get_full_image_item(self):
+        return self.full_image_item
 
     def update_zoom_roi_content(self, roi_or_pos):
         """When ROI, it is from self, other from the Logic"""
@@ -82,8 +110,8 @@ class RFImageDock(Dock):
             pos = roi_or_pos.pos()
         else:
             pos = roi_or_pos
-        logic = self.logic
         self.zoom_roi.setPos(pos, update=False)
+        logic = self.logic
         region = self.zoom_roi.getArrayRegion(logic.rf_image_array,
                                               self.full_image_item)
         self.roi_image_item.setImage(region,
@@ -100,6 +128,7 @@ class RFViewerLogic(QtCore.QObject):
     _rf_image_min = 0
     _rf_image_max = 0
     _zoom_roi_pos = (80., 60.)
+    _plot_roi_pos = (320., 300.)
 
     def __init__(self, filepath):
         super(RFViewerLogic, self).__init__()
@@ -166,6 +195,24 @@ class RFViewerLogic(QtCore.QObject):
 
     zoom_roi_pos_changed = QtCore.pyqtSignal(object)
 
+    def get_plot_roi_pos(self):
+        return self._plot_roi_pos
+
+    def set_plot_roi_pos(self, roi_or_pos):
+        if isinstance(roi_or_pos, pg.ROI):
+            pos = roi_or_pos.pos()
+        else:
+            pos = roi_or_pos
+        if (pos[0], pos[1]) != self._plot_roi_pos:
+            self._plot_roi_pos = (pos[0], pos[1])
+            self.plot_roi_pos_changed.emit(self._plot_roi_pos)
+
+    plot_roi_pos = property(get_plot_roi_pos,
+                            set_plot_roi_pos,
+                            doc='Set the position of the zoom in ROI')
+
+    plot_roi_pos_changed = QtCore.pyqtSignal(object)
+
 
 class RFViewerWindow(QtGui.QMainWindow):
     """View the RF data."""
@@ -189,9 +236,17 @@ class RFViewerWindow(QtGui.QMainWindow):
 
         logic = self.logic
 
-        rf_image_dock = RFImageDock(logic, 'RF Image', size=(660, 750))
-
+        rf_image_dock = ImageDock(logic, 'RF Image', size=(660, 750))
         self.dock_area.addDock(rf_image_dock)
+        plots_dock = PlotsDock(logic,
+                               'Image ROI Content Plots',
+                               size=(100, 200))
+        self.dock_area.addDock(plots_dock, 'bottom', rf_image_dock)
+
+        rf_plot_roi = rf_image_dock.add_plot_roi()
+        plots_dock.add_image_to_plot(rf_plot_roi,
+                                     logic.rf_image_array,
+                                     rf_image_dock.get_full_image_item())
 
         self.setCentralWidget(self.dock_area)
         self.show()
