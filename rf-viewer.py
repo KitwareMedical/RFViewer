@@ -9,6 +9,8 @@ import pyqtgraph as pg
 from pyqtgraph.dockarea import Dock
 from pyqtgraph.Qt import QtCore, QtGui
 import SimpleITK as sitk
+import numpy as np
+import scipy.signal
 
 
 class PlotsDock(Dock):
@@ -26,8 +28,8 @@ class PlotsDock(Dock):
         self.addWidget(widget)
         self.layout = widget.addLayout()
 
-    def add_image_to_plot(self, plot_roi, image_array, image_item):
-        plot = self.layout.addPlot()
+    def add_image_to_plot(self, plot_roi, image_array, image_item, row=0):
+        plot = self.layout.addPlot(row=row, col=0)
         plot_curve = plot.plot(pen=plot_roi.pen)
         plot_roi.sigRegionChanged.connect(self.update_plot_content)
         self._images_to_plot.append((plot_curve,
@@ -87,7 +89,8 @@ class ImageDock(Dock):
         self.roi_image_item = pg.ImageItem()
         zoom_roi_view.addItem(self.roi_image_item)
 
-        self.zoom_roi.sigRegionChanged.connect(self.update_zoom_roi_content)
+        self.zoom_roi.sigRegionChanged.connect(self.roi_logic.set_zoom_roi_pos)
+        self.roi_logic.zoom_roi_pos_changed.connect(self.update_zoom_roi_content)
         self.update_zoom_roi_content(self.zoom_roi)
 
         full_image_item.setRect(rect)
@@ -254,15 +257,31 @@ class RFViewerWindow(QtGui.QMainWindow):
         self.dock_area.addDock(rf_image_dock)
 
         plots_dock = PlotsDock('Image ROI Content Plots',
-                               size=(100, 200))
+                               size=(1000, 500))
         self.dock_area.addDock(plots_dock, 'bottom', rf_image_dock)
 
-        b_mode_image_logic = ImageLogic(self.filepath)
+        b_mode_image = sitk.Image(rf_image_logic.image)
+        array = sitk.GetArrayFromImage(b_mode_image)
+        hilbert = scipy.signal.hilbert(array, axis=1)
+        envelope = np.abs(hilbert)
+        b_mode_image = sitk.GetImageFromArray(envelope)
+        b_mode_image.CopyInformation(rf_image_logic.image)
+        b_mode_image_logic = ImageLogic()
+        b_mode_image_logic.image = b_mode_image
+        b_mode_dock = ImageDock(b_mode_image_logic, roi_logic,
+                                'B Mode', size=(660, 750))
+        self.dock_area.addDock(b_mode_dock, 'right', rf_image_dock)
 
         rf_plot_roi = rf_image_dock.add_plot_roi()
         plots_dock.add_image_to_plot(rf_plot_roi,
                                      rf_image_logic.image_array,
-                                     rf_image_dock.get_full_image_item())
+                                     rf_image_dock.get_full_image_item(),
+                                     0)
+        b_mode_plot_roi = b_mode_dock.add_plot_roi()
+        plots_dock.add_image_to_plot(b_mode_plot_roi,
+                                     b_mode_image_logic.image_array,
+                                     b_mode_dock.get_full_image_item(),
+                                     1)
 
         self.setCentralWidget(self.dock_area)
         self.show()
