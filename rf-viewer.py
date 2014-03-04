@@ -5,11 +5,24 @@
 import argparse
 import sys
 
-import numpy as np
 import pyqtgraph as pg
 from pyqtgraph.dockarea import Dock
 from pyqtgraph.Qt import QtCore, QtGui
 import SimpleITK as sitk
+
+
+class PlotsDock(Dock):
+    """Display the RF, B-Mode, and spectrum in the ROI"""
+
+    def __init__(self, logic, *args, **kwargs):
+        super(PlotsDock, self).__init__(*args, **kwargs)
+        self.logic = logic
+
+        self.initializeUI()
+
+    def initializeUI(self):
+        logic = self.logic
+
 
 class RFImageDock(Dock):
     """Display the RF Image"""
@@ -29,6 +42,7 @@ class RFImageDock(Dock):
 
         full_view = layout.addViewBox(row=0, col=0, rowspan=2, lockAspect=True)
         full_image_item = pg.ImageItem(logic.rf_image_array)
+        self.full_image_item = full_image_item
         spacing = logic.rf_image.GetSpacing()
         size = logic.rf_image.GetSize()
         rect = QtCore.QRectF(0, 0,
@@ -36,19 +50,17 @@ class RFImageDock(Dock):
         full_image_item.setRect(rect)
         full_view.addItem(full_image_item)
 
-        roi_view = layout.addViewBox(row=2, col=0)
-        roi = pg.EllipseROI([300, 200], [80, 60], pen=(3, 9))
-        full_view.addItem(roi)
-        roi_image_item = pg.ImageItem()
-        roi_view.addItem(roi_image_item)
+        zoom_roi_view = layout.addViewBox(row=2, col=0)
+        self.zoom_roi = pg.EllipseROI([300, 200], logic.zoom_roi_pos,
+                                      pen=(3, 9))
+        full_view.addItem(self.zoom_roi)
+        self.roi_image_item = pg.ImageItem()
+        zoom_roi_view.addItem(self.roi_image_item)
 
-        def roi_update():
-            roi_image_item.setImage(roi.getArrayRegion(logic.rf_image_array,
-                                                       full_image_item),
-                                    levels=(logic.rf_image_min,
-                                            logic.rf_image_max))
-        roi.sigRegionChanged.connect(roi_update)
-        roi_update()
+        self.zoom_roi.sigRegionChanged.connect(self.update_zoom_roi_content)
+        self.zoom_roi.sigRegionChangeFinished.connect(logic.set_zoom_roi_pos)
+        logic.zoom_roi_pos_changed.connect(self.update_zoom_roi_content)
+        self.update_zoom_roi_content(self.zoom_roi)
 
         plot_roi = pg.LineROI((320, 300), (320, 450), 9, pen=(4, 9))
         full_view.addItem(plot_roi)
@@ -64,6 +76,20 @@ class RFImageDock(Dock):
 
         full_image_item.setRect(rect)
 
+    def update_zoom_roi_content(self, roi_or_pos):
+        """When ROI, it is from self, other from the Logic"""
+        if isinstance(roi_or_pos, pg.ROI):
+            pos = roi_or_pos.pos()
+        else:
+            pos = roi_or_pos
+        logic = self.logic
+        self.zoom_roi.setPos(pos, update=False)
+        region = self.zoom_roi.getArrayRegion(logic.rf_image_array,
+                                              self.full_image_item)
+        self.roi_image_item.setImage(region,
+                                     levels=(logic.rf_image_min,
+                                             logic.rf_image_max))
+
 
 class RFViewerLogic(QtCore.QObject):
     """Controls the RFViewers."""
@@ -73,6 +99,7 @@ class RFViewerLogic(QtCore.QObject):
     _rf_image_array = None
     _rf_image_min = 0
     _rf_image_max = 0
+    _zoom_roi_pos = (80., 60.)
 
     def __init__(self, filepath):
         super(RFViewerLogic, self).__init__()
@@ -120,6 +147,24 @@ class RFViewerLogic(QtCore.QObject):
 
     rf_image_max = property(get_rf_image_max,
                             doc='RF image maximum value')
+
+    def get_zoom_roi_pos(self):
+        return self._zoom_roi_pos
+
+    def set_zoom_roi_pos(self, roi_or_pos):
+        if isinstance(roi_or_pos, pg.ROI):
+            pos = roi_or_pos.pos()
+        else:
+            pos = roi_or_pos
+        if (pos[0], pos[1]) != self._zoom_roi_pos:
+            self._zoom_roi_pos = (pos[0], pos[1])
+            self.zoom_roi_pos_changed.emit(self._zoom_roi_pos)
+
+    zoom_roi_pos = property(get_zoom_roi_pos,
+                            set_zoom_roi_pos,
+                            doc='Set the position of the zoom in ROI')
+
+    zoom_roi_pos_changed = QtCore.pyqtSignal(object)
 
 
 class RFViewerWindow(QtGui.QMainWindow):
