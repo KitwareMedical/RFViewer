@@ -34,7 +34,8 @@ class PlotsDock(Dock):
                           image_item,
                           title,
                           axis_labels,
-                          row=0):
+                          row=0,
+                          compute_spectra=False):
         plot = self.layout.addPlot(row=row, col=0)
         plot_curve = plot.plot(pen=plot_roi.pen)
         plot.setTitle(title)
@@ -43,7 +44,8 @@ class PlotsDock(Dock):
         self._images_to_plot.append((plot_curve,
                                      plot_roi,
                                      image_array,
-                                     image_item))
+                                     image_item,
+                                     compute_spectra))
         self.update_plot_content(plot_roi)
 
     def update_plot_content(self, roi_or_pos):
@@ -52,13 +54,31 @@ class PlotsDock(Dock):
             pos = roi_or_pos.pos()
         else:
             pos = roi_or_pos
-        for plot_curve, plot_roi, image_array, image_item in self._images_to_plot:
+        for plot_curve, plot_roi, image_array, image_item, compute_spectra in self._images_to_plot:
             plot_roi.setPos(pos, update=False)
             data = plot_roi.getArrayRegion(image_array,
                                            image_item)
-            yy = data[data.shape[0]/2, :]
             # TODO: do not assume 40 MHz sampling
-            xx = 1./40. * np.arange(len(yy))
+            fs = 40.
+            if compute_spectra:
+                nperseg = data.shape[1] / 3
+                window = np.hanning(nperseg)
+                window = np.tile(window, (data.shape[0], 1))
+                spect = np.zeros(window.shape)
+                for ii in range(3):
+                    start = ii * nperseg
+                    end = nperseg * (ii + 1)
+                    xi = np.fft.fft(data[:, start:end] * window, axis=1)
+                    xip = xi * xi.conj()
+                    spect += xip
+                spect /= 3
+                yy = np.mean(spect, axis=0)
+                xx = np.linspace(0, fs, len(yy))
+                yy = yy[:len(yy)/2]
+                xx = xx[:len(xx)/2]
+            else:
+                yy = data[data.shape[0]/2, :]
+                xx = 1./fs * np.arange(len(yy))
             plot_curve.setData(xx, yy)
 
 
@@ -284,20 +304,29 @@ class RFViewerWindow(QtGui.QMainWindow):
         self.dock_area.addDock(b_mode_dock, 'right', rf_image_dock)
 
         rf_plot_roi = rf_image_dock.add_plot_roi()
-        labels = {'bottom': 'Time (usec)'}
+        labels = {'bottom': 'Time [usec]'}
         plots_dock.add_image_to_plot(rf_plot_roi,
                                      rf_image_logic.image_array,
                                      rf_image_dock.get_full_image_item(),
-                                     'RF',
+                                     'RF (time)',
                                      labels,
                                      0)
+        labels = {'bottom': 'Frequency [MHz]'}
+        plots_dock.add_image_to_plot(rf_plot_roi,
+                                     rf_image_logic.image_array,
+                                     rf_image_dock.get_full_image_item(),
+                                     'RF (spectrum)',
+                                     labels,
+                                     1,
+                                     True)
         b_mode_plot_roi = b_mode_dock.add_plot_roi()
+        labels = {'bottom': 'Time (usec)'}
         plots_dock.add_image_to_plot(b_mode_plot_roi,
                                      b_mode_image_logic.image_array,
                                      b_mode_dock.get_full_image_item(),
                                      'B-Mode',
                                      labels,
-                                     1)
+                                     2)
 
         self.setCentralWidget(self.dock_area)
         self.show()
