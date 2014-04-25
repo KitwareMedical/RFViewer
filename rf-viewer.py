@@ -39,6 +39,8 @@ class PlotsDock(Dock):
         plot = self.layout.addPlot(row=row, col=0)
         plot_curve = plot.plot(pen=plot_roi.pen)
         plot.setTitle(title)
+        if compute_spectra:
+            plot.setLogMode(y=True)
         plot.setLabels(**axis_labels)
         plot_roi.sigRegionChanged.connect(self.update_plot_content)
         self._images_to_plot.append((plot_curve,
@@ -74,8 +76,8 @@ class PlotsDock(Dock):
                 spect /= 3
                 yy = np.mean(spect, axis=0)
                 xx = np.linspace(0, fs, len(yy))
-                yy = yy[:len(yy)/2]
-                xx = xx[:len(xx)/2]
+                yy = yy[1:len(yy)/2]
+                xx = xx[1:len(xx)/2]
             else:
                 yy = data[data.shape[0]/2, :]
                 xx = 1./fs * np.arange(len(yy))
