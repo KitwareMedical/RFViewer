@@ -28,9 +28,15 @@ class PlotsDock(Dock):
         self.addWidget(widget)
         self.layout = widget.addLayout()
 
-    def add_image_to_plot(self, plot_roi, image_array, image_item, row=0):
+    def add_image_to_plot(self,
+                          plot_roi,
+                          image_array,
+                          image_item,
+                          title,
+                          row=0):
         plot = self.layout.addPlot(row=row, col=0)
         plot_curve = plot.plot(pen=plot_roi.pen)
+        plot.setTitle(title)
         plot_roi.sigRegionChanged.connect(self.update_plot_content)
         self._images_to_plot.append((plot_curve,
                                      plot_roi,
@@ -276,11 +282,13 @@ class RFViewerWindow(QtGui.QMainWindow):
         plots_dock.add_image_to_plot(rf_plot_roi,
                                      rf_image_logic.image_array,
                                      rf_image_dock.get_full_image_item(),
+                                     'RF',
                                      0)
         b_mode_plot_roi = b_mode_dock.add_plot_roi()
         plots_dock.add_image_to_plot(b_mode_plot_roi,
                                      b_mode_image_logic.image_array,
                                      b_mode_dock.get_full_image_item(),
+                                     'B-Mode',
                                      1)
 
         self.setCentralWidget(self.dock_area)
