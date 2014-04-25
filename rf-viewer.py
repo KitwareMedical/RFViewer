@@ -234,6 +234,7 @@ class ImageLogic(QtCore.QObject):
     def set_image(self, image):
         self._image = image
         image_array = sitk.GetArrayFromImage(self._image)
+        image_array = image_array[0, :, :]
         image_array = image_array.squeeze()
         image_array = image_array.transpose()
         self._image_array = image_array
