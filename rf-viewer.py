@@ -56,7 +56,10 @@ class PlotsDock(Dock):
             plot_roi.setPos(pos, update=False)
             data = plot_roi.getArrayRegion(image_array,
                                            image_item)
-            plot_curve.setData(data[data.shape[0]/2, :])
+            yy = data[data.shape[0]/2, :]
+            # TODO: do not assume 40 MHz sampling
+            xx = 1./40. * np.arange(len(yy))
+            plot_curve.setData(xx, yy)
 
 
 class ImageDock(Dock):
