@@ -33,10 +33,12 @@ class PlotsDock(Dock):
                           image_array,
                           image_item,
                           title,
+                          axis_labels,
                           row=0):
         plot = self.layout.addPlot(row=row, col=0)
         plot_curve = plot.plot(pen=plot_roi.pen)
         plot.setTitle(title)
+        plot.setLabels(**axis_labels)
         plot_roi.sigRegionChanged.connect(self.update_plot_content)
         self._images_to_plot.append((plot_curve,
                                      plot_roi,
@@ -279,16 +281,19 @@ class RFViewerWindow(QtGui.QMainWindow):
         self.dock_area.addDock(b_mode_dock, 'right', rf_image_dock)
 
         rf_plot_roi = rf_image_dock.add_plot_roi()
+        labels = {'bottom': 'Time (usec)'}
         plots_dock.add_image_to_plot(rf_plot_roi,
                                      rf_image_logic.image_array,
                                      rf_image_dock.get_full_image_item(),
                                      'RF',
+                                     labels,
                                      0)
         b_mode_plot_roi = b_mode_dock.add_plot_roi()
         plots_dock.add_image_to_plot(b_mode_plot_roi,
                                      b_mode_image_logic.image_array,
                                      b_mode_dock.get_full_image_item(),
                                      'B-Mode',
+                                     labels,
                                      1)
 
         self.setCentralWidget(self.dock_area)
