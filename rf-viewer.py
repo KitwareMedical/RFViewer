@@ -39,6 +39,8 @@ class PlotsDock(Dock):
         plot = self.layout.addPlot(row=row, col=0)
         plot_curve = plot.plot(pen=plot_roi.pen)
         plot.setTitle(title)
+        plot.showButtons()
+        plot.showGrid(y=True, alpha=0.6)
         if compute_spectra:
             plot.setLogMode(y=True)
         plot.setLabels(**axis_labels)
@@ -72,7 +74,7 @@ class PlotsDock(Dock):
                     end = nperseg * (ii + 1)
                     xi = np.fft.fft(data[:, start:end] * window, axis=1)
                     xip = xi * xi.conj()
-                    spect += xip
+                    spect += xip.real
                 spect /= 3
                 yy = np.mean(spect, axis=0)
                 xx = np.linspace(0, fs, len(yy))
